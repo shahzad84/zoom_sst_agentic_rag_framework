@@ -3,6 +3,9 @@ import pyaudio
 import numpy as np
 import queue
 import threading
+from transformers import pipeline
+import re
+
 # Initialize Whisper model
 model = WhisperModel("small.en")
 
@@ -24,6 +27,22 @@ audio_buffer_lock = threading.Lock()  # Lock for thread-safe buffer access
 # Flags to control audio streaming and processing
 stream_active = False
 processing_active = False
+
+# Load HuggingFace pipeline for question detection
+question_pipeline = pipeline("text-classification", model="distilbert-base-uncased-finetuned-sst-2-english")
+
+
+def extract_questions(text):
+    """Detect if a given text contains a question."""
+    # Regex to check for explicit question marks (e.g., 'What is...?')
+    if "?" in text:
+        return text
+
+    # Use HuggingFace model to detect implicit questions
+    prediction = question_pipeline(text)
+    if prediction[0]["label"] == "QUESTION" and prediction[0]["score"] > 0.8:  # Confidence threshold
+        return text
+    return None
 
 
 def audio_callback(in_data, frame_count, time_info, status):
@@ -59,35 +78,34 @@ def stop_audio_stream():
 
 
 def process_audio():
-    global audio_buffer, stream_active, audio_queue, transcription_queue, model, audio_buffer_lock
+    """Process audio data for transcription and question detection."""
+    global audio_buffer, processing_active
 
-    while stream_active or not audio_queue.empty():
+    processing_active = True
+
+    while processing_active:
         try:
-            in_data = audio_queue.get(timeout=0.1)
+            # Get audio data from the queue
+            in_data = audio_queue.get(timeout=1)
 
+            # Convert audio data to numpy array
             audio_array = np.frombuffer(in_data, dtype=np.int16).astype(np.float32) / 32768.0
+            audio_buffer.extend(audio_array)
 
-            with audio_buffer_lock: # Lock the buffer during modification
-                audio_buffer.extend(audio_array)
+            # Transcribe if buffer size is sufficient
+            if len(audio_buffer) >= MIN_AUDIO_LENGTH:
+                audio_chunk = np.array(audio_buffer[:MIN_AUDIO_LENGTH])
+                audio_buffer = audio_buffer[MIN_AUDIO_LENGTH:]
 
-            # Process the buffer in chunks to avoid memory issues with very long audio.
-            chunk_size = RATE * 2 # Process 2-second chunks
-            while len(audio_buffer) >= chunk_size:
-                with audio_buffer_lock: # Lock the buffer while creating the chunk
-                    audio_chunk = np.array(audio_buffer[:chunk_size])
-                    audio_buffer = audio_buffer[chunk_size:]
-                
-                try:
-                    segments, info = model.transcribe(audio_chunk, beam_size=5)
-                    for segment in segments:
-                        transcription_queue.put(f"[{segment.start:.2f}s - {segment.end:.2f}s] {segment.text}")
-                        print(f"Transcribed: {segment.text}")
+                segments, _ = model.transcribe(audio_chunk, beam_size=5)
+                for segment in segments:
+                    transcription = f"[{segment.start:.2f}s - {segment.end:.2f}s] {segment.text}"
+                    transcription_queue.put(transcription)
 
-                except Exception as e:
-                    print(f"Transcription error: {e}")
+                    # Extract questions and log them
+                    question = extract_questions(segment.text)
+                    if question:
+                        transcription_queue.put(f"Detected Question: {question}")
 
         except queue.Empty:
             continue
-        except Exception as e:
-            print(f"Error in process_audio: {e}")
-            break

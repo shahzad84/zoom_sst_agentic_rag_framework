@@ -85,6 +85,25 @@ def stop_audio():
 
     return {"message": "Audio stream stopped successfully."}
 
+@app.get("/questions")
+async def get_questions():
+    """API endpoint to get detected questions."""
+    if not audio_stream_active:
+        raise HTTPException(status_code=400, detail="Audio stream is not active.")
+
+    def generate_questions():
+        while audio_stream_active:
+            if not transcription_queue.empty():
+                transcription = transcription_queue.get()
+                # Check if the transcription contains a detected question
+                if "Detected Question:" in transcription:
+                    yield f"{transcription}\n"
+            else:
+                time.sleep(0.1)  # Avoid busy-waiting
+        yield "Audio stream stopped. No further questions detected.\n"
+
+    return StreamingResponse(generate_questions(), media_type="text/plain")
+
 
 @app.get("/")
 def main():
