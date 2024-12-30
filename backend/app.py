@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse,JSONResponse
-from src.decision_logic_rag import decide_and_answer
+from src.decision_logic_rag import decide_and_answer, web_search_duckduckgo
 import time
 from src.wisper import (
     audio_queue,
@@ -134,6 +134,14 @@ async def transcription_to_answer():
         yield "Audio stream stopped. No further processing.\n"
 
     return StreamingResponse(generate_transcription_and_answers(), media_type="text/plain")
+
+@app.get("/web_search")
+def search(query: str):
+    """
+    FastAPI route to perform a search using the DuckDuckGo API and return the result.
+    """
+    web_result = web_search_duckduckgo(query)
+    return {"web_result": web_result}
 
 @app.get("/")
 def main():
