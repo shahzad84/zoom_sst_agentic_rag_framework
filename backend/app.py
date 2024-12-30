@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse,JSONResponse
+from src.decision_logic_rag import decide_and_answer
 import time
 from src.wisper import (
     audio_queue,
@@ -104,6 +105,35 @@ async def get_questions():
 
     return StreamingResponse(generate_questions(), media_type="text/plain")
 
+
+@app.get("/ask")
+async def ask_question(query: str):
+    """API endpoint to process a query using RAG, Web Search, or LLM."""
+    try:
+        response = decide_and_answer(query)
+        return JSONResponse({"query": query, "response": response})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing query: {str(e)}")
+
+
+@app.get("/transcription-answer")
+async def transcription_to_answer():
+    """Stream transcription and process answers using decision logic."""
+    global audio_stream_active
+    if not audio_stream_active:
+        raise HTTPException(status_code=400, detail="Audio stream is not active.")
+
+    def generate_transcription_and_answers():
+        while audio_stream_active:
+            if not transcription_queue.empty():
+                transcription = transcription_queue.get()
+                answer = decide_and_answer(transcription)
+                yield f"Transcription: {transcription}\nAnswer: {answer}\n"
+            else:
+                time.sleep(0.1)
+        yield "Audio stream stopped. No further processing.\n"
+
+    return StreamingResponse(generate_transcription_and_answers(), media_type="text/plain")
 
 @app.get("/")
 def main():

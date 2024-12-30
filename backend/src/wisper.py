@@ -40,7 +40,7 @@ def extract_questions(text):
 
     # Use HuggingFace model to detect implicit questions
     prediction = question_pipeline(text)
-    if prediction[0]["label"] == "QUESTION" and prediction[0]["score"] > 0.8:  # Confidence threshold
+    if prediction[0]["label"] == "LABEL_1" and prediction[0]["score"] > 0.8:  # LABEL_1 typically indicates a question
         return text
     return None
 
