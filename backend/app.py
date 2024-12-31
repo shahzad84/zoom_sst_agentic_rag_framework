@@ -1,6 +1,12 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, Form, APIRouter
 from fastapi.responses import StreamingResponse,JSONResponse
 from src.decision_logic_rag import decide_and_answer, web_search_duckduckgo
+from src.faiss_vectorstorage_chat.load_document import create_faiss_index, load_documents, stored_documents
+from src.faiss_vectorstorage_chat.search_faiss_index import search_faiss_index
+from src. faiss_vectorstorage_chat.chat_with_document import chat_with_documents
+from src.faiss_vectorstorage_chat.data_type import QueryRequest,QueryResponse
+
+
 import time
 from src.wisper import (
     audio_queue,
@@ -143,6 +149,54 @@ def search(query: str):
     web_result = web_search_duckduckgo(query)
     return {"web_result": web_result}
 
+@app.post("/upload/")
+async def upload_document(file: UploadFile, index_name: str = Form("vector_store")):
+    """
+    Endpoint to upload a PDF file and create a FAISS index.
+    """
+    try:
+        # Save uploaded file
+        file_path = f"./{file.filename}"
+        with open(file_path, "wb") as f:
+            f.write(await file.read())
+
+        # Load and split documents
+        docs = load_documents(file_path)
+        stored_documents.extend(docs)
+
+        # Create FAISS index
+        create_faiss_index(docs, index_name=index_name)
+
+        return {"message": f"Index '{index_name}' created successfully."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
+
+
+@app.post("/chat_with_docs/", response_model=QueryResponse)
+async def query_faiss(request: QueryRequest):
+    """
+    Endpoint to query the FAISS index and generate a response.
+    """
+    try:
+        # Search the index
+        indices, _ = search_faiss_index(request.query, index_name=request.index_name, k=request.k)
+
+        # Retrieve matching document chunks
+        retrieved_docs = [stored_documents[i] for i in indices[0] if i < len(stored_documents)]
+
+        if not retrieved_docs:
+            raise HTTPException(status_code=404, detail="No relevant documents found.")
+
+        # Generate chat response
+        response = chat_with_documents(request.query, retrieved_docs)
+
+        return QueryResponse(
+            response=response,
+            retrieved_docs=[doc.page_content for doc in retrieved_docs]
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing query: {str(e)}")
+    
 @app.get("/")
 def main():
     return {"message": "Real-time transcription API is running!"}
