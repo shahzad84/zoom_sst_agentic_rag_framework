@@ -1,5 +1,9 @@
 from transformers import pipeline
 import requests
+from src.faiss_vectorstorage_chat.search_faiss_index import search_faiss_index
+from src.faiss_vectorstorage_chat.chat_with_document import chat_with_documents
+from src.faiss_vectorstorage_chat.load_document import stored_documents
+
 
 # Load Hugging Face's free models
 qa_pipeline = pipeline("question-answering", model="distilbert-base-cased-distilled-squad")  # Free QA model
@@ -7,13 +11,6 @@ qa_pipeline = pipeline("question-answering", model="distilbert-base-cased-distil
 text_generator = pipeline("text-generation", model="EleutherAI/gpt-neo-125M")
 
 
-# Dummy retriever (replace with FAISS, Pinecone, etc.)
-def retrieve_documents(query):
-    """Mock retrieval for RAG. Replace with actual retriever."""
-    documents = {
-        "domain_query": "This is the relevant document content for domain queries.",
-    }
-    return documents.get(query, None)
 
 def web_search_duckduckgo(query):
     """
@@ -50,32 +47,26 @@ def decide_and_answer(query):
     """
     print(f"Deciding handler for query: {query}")
     
-    # 1. Check for domain-specific queries (RAG)
-    document = retrieve_documents(query)
-    if document:
-        try:
-            print("Using RAG logic...")
-            qa_result = qa_pipeline(question=query, context=document)
-            if qa_result and qa_result["answer"]:
-                return f"RAG Response: {qa_result['answer']}"
-        except Exception as e:
-            print(f"Error using QA model in RAG: {str(e)}")
+    # 1. Use FAISS for document retrieval
+    try:
+        print("Using RAG...")
+        indices, distances = search_faiss_index(query, index_name="vector_store", k=10)
+        retrieved_docs = [stored_documents[i] for i in indices[0] if i < len(stored_documents)]
+        
+        if retrieved_docs:
+            # print(f"Retrieved Docs: {[doc.page_content for doc in retrieved_docs]}")
+            response = chat_with_documents(query, retrieved_docs)
+            
+            # Refine the response
+            if response and response.strip().lower() != query.lower() and len(response.split()) > 3:
+
+                print(f"RAG Response: {response}")
+                return {"method": "RAG", "response": response}
+            
+    except Exception as e:
+        print(f"Error during FAISS query or document chat: {str(e)}")
     
-    # 2. Use QA model for general knowledge questions
-    # try:
-    #     print("Using QA Model...")
-    #     default_context = """
-    #     The Nile is the longest river in the world, stretching over 6,650 kilometers.
-    #     The Amazon River is the second longest river, known for its vast watershed.
-    #     Other major rivers include the Yangtze, Mississippi, and the Ganges.
-    #     """
-    #     qa_result = qa_pipeline(question=query, context=default_context)
-    #     if qa_result and qa_result["answer"]:
-    #         return f"QA Model Response: {qa_result['answer']}"
-    # except Exception as e:
-    #     print(f"Error using QA model: {str(e)}")
-    
-    # 3. Perform Web Search as the next fallback
+    # 2. Perform Web Search as the next fallback
     try:
         print("Using Web Search...")
         web_result = web_search_duckduckgo(query)
@@ -84,7 +75,7 @@ def decide_and_answer(query):
     except Exception as e:
         print(f"Error during web search: {str(e)}")
     
-    # 4. Use LLM for open-ended queries as the last resort
+    # 3. Use LLM for open-ended queries as the last resort
     try:
         print("Using LLM for open-ended query...")
         query_prompt = f"Answer the following question: {query}"
@@ -94,5 +85,5 @@ def decide_and_answer(query):
     except Exception as e:
         print(f"Error using text generation model: {str(e)}")
     
-    # 5. Fallback response if everything fails
+    # 4. Fallback response if everything fails
     return "Sorry, I couldn't find an answer to your query."
