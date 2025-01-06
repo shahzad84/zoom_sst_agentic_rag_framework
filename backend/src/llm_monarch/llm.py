@@ -1,14 +1,13 @@
-# from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 
-# model_name = "EleutherAI/gpt-neo-1.3B"
-# tokenizer = AutoTokenizer.from_pretrained(model_name)
-# model = AutoModelForCausalLM.from_pretrained(model_name)
+model_name="distilgpt2"
 
-# prompt = "What is AI?"
-# inputs = tokenizer(prompt, return_tensors="pt")
 
-# # Generate a response
-# outputs = model.generate(**inputs, pad_token_id=tokenizer.eos_token_id)
+# LLM Setup
+# llm = "EleutherAI/gpt-neo-1.3B"
+# Load LLM
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(model_name)
+tokenizer.pad_token = tokenizer.eos_token
+text_generator = pipeline("text-generation", model=model, tokenizer=tokenizer, max_new_tokens=100)
 
-# # Decode and print the response
-# print(tokenizer.decode(outputs[0], skip_special_tokens=True))

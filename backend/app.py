@@ -5,9 +5,8 @@ from src.faiss_vectorstorage_chat.load_document import create_faiss_index, load_
 from src.faiss_vectorstorage_chat.search_faiss_index import search_faiss_index
 from src. faiss_vectorstorage_chat.chat_with_document import chat_with_documents
 from src.faiss_vectorstorage_chat.data_type import QueryRequest,QueryResponse
-
-
 import time
+from loguru import logger
 from src.wisper import (
     audio_queue,
     transcription_queue,
@@ -197,6 +196,29 @@ async def query_faiss(request: QueryRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing query: {str(e)}")
     
+
+from data_type import PromptRequest
+from src.react_agent.agent_chat import interpret_prompt, execute_action
+
+@app.post("/react_agent_chat")
+def process_prompt(request: PromptRequest):
+#     {
+#   "prompt": "Send an email to shahzad20022002@gmail.com with subject 'Hello' and body 'How are you?'"
+# }
+
+    try:
+        # Step 1: Use LLM to interpret the user prompt
+        llm_response = interpret_prompt(request.prompt)
+
+        # Step 2: Execute the action based on LLM output
+        response = execute_action(llm_response, request.prompt)
+        return response
+    except Exception as e:
+        logger.error(f"An error occurred: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+
 @app.get("/")
 def main():
     return {"message": "Real-time transcription API is running!"}
