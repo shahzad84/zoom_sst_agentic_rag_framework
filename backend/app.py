@@ -219,6 +219,51 @@ def process_prompt(request: PromptRequest):
 
 
 
-@app.get("/")
-def main():
-    return {"message": "Real-time transcription API is running!"}
+from data_type import ChatRequest
+from src.image_chat_llm.chat_with_image import generate_text
+from src.image_chat_llm.images import generate_image
+from src.image_chat_llm.memory import Memory
+import traceback
+
+memory = Memory()
+import urllib
+@app.post("/chat_with_images")
+async def chat_with_images(request: ChatRequest):
+    try:
+        user_id = request.user_id
+        user_message = request.message
+
+        # Generate AI text response
+        ai_response = await generate_text(user_message)
+
+        # Check if an image was requested
+        if "show me" in user_message.lower() or "draw" in user_message.lower():
+            key = f"{user_id}_last_prompt"
+            image_prompt = user_message  # Use current message directly
+
+            # Save the prompt for future use
+            memory.set(key, image_prompt)
+
+            # Return the AI response and image endpoint URL
+            return {
+                "response": ai_response,
+                "image_url": f"/generate_image?prompt={urllib.parse.quote(image_prompt)}"
+            }
+
+        # Return only the AI response
+        return {"response": ai_response}
+
+    except Exception as e:
+        error_message = f"Error occurred in /chat_with_images endpoint: {str(e)}\n{traceback.format_exc()}"
+        print(error_message)
+        raise HTTPException(status_code=500, detail=error_message)
+
+#using this you can see what llm have generated(use local host and rest of the generated url) :http://localhost:8000/generate_image?prompt=Show%20me%20an%20image%20of%20a%20catfish%20in%20a%20series%20of%20small%20fish%20pots 
+
+# Image generation endpoint
+@app.get("/generate_image")
+async def generate_image_endpoint(prompt: str):
+    return await generate_image(prompt)
+
+
+# uvicorn app:app --reload
