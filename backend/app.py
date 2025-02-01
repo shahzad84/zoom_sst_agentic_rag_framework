@@ -267,3 +267,70 @@ async def generate_image_endpoint(prompt: str):
 
 
 # uvicorn app:app --reload
+
+#mongodb_vector_search and chat
+
+from src.mongodb_vector_store_chat_llm.store_chunk_in_mongodb import store_chunks_in_mongodb
+import os
+from src.mongodb_vector_store_chat_llm.mongodb_vector_search import mongodb_vector_search
+from src.mongodb_vector_store_chat_llm.chat_with_mongo_doc import generate_response, clean_context
+import uuid
+from src.mongodb_vector_store_chat_llm.load_document import summarize_context
+from data_type import QueryResponse,QueryRequest
+
+@app.post("/mongodb_upload/")
+async def upload_document(file: UploadFile, document_source: str = Form(...)):
+    """Endpoint to upload PDF and store in MongoDB"""
+    try:
+        file_path = f"temp_{file.filename}"
+        with open(file_path, "wb") as f:
+            f.write(await file.read())
+        
+        docs = load_documents(file_path)
+        inserted_ids = store_chunks_in_mongodb(docs, document_source)
+        
+        os.remove(file_path)
+        return {"message": f"Uploaded {len(inserted_ids)} chunks successfully"}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/query_mongodb/", response_model=QueryResponse)
+async def query_documents(request: QueryRequest):
+    """Endpoint to query documents and get response"""
+    try:
+        # Vector search
+        results = mongodb_vector_search(request.query, request.k)
+        if not results:
+            raise HTTPException(status_code=404, detail="No relevant documents found")
+        
+        # Generate raw context
+        raw_context = "\n\n".join([res["text"] for res in results])
+        
+        # Clean the context (remove duplicates and irrelevant information)
+        cleaned_context = clean_context(raw_context, max_context_length=2000)  # Adjust max length as needed
+        
+        # Summarize the cleaned context (if needed)
+        summarized_context = summarize_context(cleaned_context, max_length=1000)
+        
+        # Generate response
+        answer = generate_response(request.query, summarized_context)
+        
+        # Generate session ID
+        session_id = str(uuid.uuid4())
+        print(answer)
+        return QueryResponse(
+            response=answer,
+            retrieved_docs=results,  # Return full search results
+            session_id=session_id
+        )
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+
+
