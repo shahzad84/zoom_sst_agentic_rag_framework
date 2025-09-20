@@ -121,24 +121,47 @@ async def ask_question(query: str):
         raise HTTPException(status_code=500, detail=f"Error processing query: {str(e)}")
 
 
-@app.get("/transcription-answer")
-async def transcription_to_answer():
-    """Stream transcription and process answers using decision logic."""
-    global audio_stream_active
+# @app.get("/transcription-answer")
+# async def transcription_to_answer():
+#     """Stream transcription and process answers using decision logic."""
+#     global audio_stream_active
+#     if not audio_stream_active:
+#         raise HTTPException(status_code=400, detail="Audio stream is not active.")
+
+#     def generate_transcription_and_answers():
+#         while audio_stream_active:
+#             if not transcription_queue.empty():
+#                 transcription = transcription_queue.get()
+#                 answer = decide_and_answer(transcription)
+#                 yield f"Transcription: {transcription}\nAnswer: {answer}\n"
+#             else:
+#                 time.sleep(0.1)
+#         yield "Audio stream stopped. No further processing.\n"
+
+#     return StreamingResponse(generate_transcription_and_answers(), media_type="text/plain")
+
+@app.get("/question-answer")
+async def question_answer_stream():
+    """Stream detected questions and answers in real-time."""
     if not audio_stream_active:
         raise HTTPException(status_code=400, detail="Audio stream is not active.")
 
-    def generate_transcription_and_answers():
+    def generate_answers():
         while audio_stream_active:
             if not transcription_queue.empty():
                 transcription = transcription_queue.get()
-                answer = decide_and_answer(transcription)
-                yield f"Transcription: {transcription}\nAnswer: {answer}\n"
+                if "Detected Question:" in transcription:
+                    # Extract the actual question
+                    question = transcription.split("Detected Question:")[-1].strip()
+                    # Get answer
+                    answer = decide_and_answer(question)
+                    yield f"Question: {question}\nAnswer: {answer}\n"
             else:
                 time.sleep(0.1)
-        yield "Audio stream stopped. No further processing.\n"
+        yield "Audio stream stopped. No further answers.\n"
 
-    return StreamingResponse(generate_transcription_and_answers(), media_type="text/plain")
+    return StreamingResponse(generate_answers(), media_type="text/plain")
+
 
 @app.get("/web_search")
 def search(query: str):
